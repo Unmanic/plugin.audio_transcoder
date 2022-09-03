@@ -8,15 +8,17 @@
     Date:                     03 Sep 2022, (12:08 PM)
 
     Copyright:
-           Copyright (C) Josh Sunnex - All Rights Reserved
+        Copyright (C) 2021 Josh Sunnex
 
-           THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-           EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-           MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-           IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-           DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-           OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
-           OR OTHER DEALINGS IN THE SOFTWARE.
+        This program is free software: you can redistribute it and/or modify it under the terms of the GNU General
+        Public License as published by the Free Software Foundation, version 3.
+
+        This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+        implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+        for more details.
+
+        You should have received a copy of the GNU General Public License along with this program.
+        If not, see <https://www.gnu.org/licenses/>.
 
 """
 
