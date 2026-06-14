@@ -21,6 +21,8 @@
         If not, see <https://www.gnu.org/licenses/>.
 
 """
+import mimetypes
+
 from audio_transcoder.lib.encoders.aac import AacEncoder
 from audio_transcoder.lib.encoders.lame import LameEncoder
 
@@ -59,3 +61,16 @@ def join_filtergraph(filter_id, filter_args, stream_id):
         filtergraph += '[{}]'.format(filter_id)
         count += 1
     return filter_id, filtergraph
+
+
+def get_media_file_mode(path: str):
+    file_type = mimetypes.guess_type(path)[0]
+    if not file_type:
+        return None
+
+    file_type_category = file_type.split('/')[0]
+    if file_type_category == 'video':
+        return 'video_file'
+    if file_type_category == 'audio':
+        return 'audio_file'
+    return None

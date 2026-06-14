@@ -1,4 +1,4 @@
-# Transcode Audio Files
+# Transcode Audio
 Plugin for [Unmanic](https://github.com/Unmanic)
 
 ---

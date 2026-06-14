@@ -1,6 +1,11 @@
 
 ---
 
+Transcode Audio is designed to transcode audio streams in media files.
+
+It supports both audio-only source files and video/media containers. When processing a video/media file, the
+plugin transcodes only the audio streams and copies all non-audio streams through to the output unchanged.
+
 ##### Links:
 
 - [Support](https://unmanic.app/discord)
@@ -22,8 +27,10 @@ For information on the available encoder settings:
 ##### Additional Information:
 
 :::note
-The output file extension will always be determined by the selected audio encoder. 
-For example, selecting an MP3 encoder will always produce a *XXXX.mp3* file, and selecting an AAC encoder will always produce a *XXXX.m4a* file.
+For audio-only files, the output file extension is determined by the selected audio encoder.
+For example, selecting an MP3 encoder will produce a *XXXX.mp3* file, and selecting an AAC encoder will produce a *XXXX.m4a* file.
+
+For video/media files, the plugin preserves the original container and only transcodes the audio streams.
 :::
 
 :::note
@@ -43,10 +50,10 @@ ffmpeg \
     -hide_banner \
     -loglevel info \
     <CUSTOM MAIN OPTIONS HERE> \
-    -i /path/to/input/audio.wav \
+    -i /path/to/input/media.file \
     <CUSTOM ADVANCED OPTIONS HERE> \
     -map 0:0 -c:a:0 <CUSTOM AUDIO OPTIONS HERE> \
-    -y /path/to/output/audio.mp3 
+    -y /path/to/output/media.file
 ```
 :::
 
@@ -57,5 +64,5 @@ Enabling the *"Force transcoding ..."* option will force a transcode of the audi
 
 A file will only be forced to be transcoded once. It will then be flagged in a local `.unmanic` file to prevent it being added to the pending tasks list in a loop.
 
-However, a file previously flagged to be ignored by this will still be transcoded to apply any matching smart filters such as scaling, stripping data streams, etc.
+However, a file previously flagged to be ignored by this will still be transcoded to apply any matching audio filter changes.
 :::

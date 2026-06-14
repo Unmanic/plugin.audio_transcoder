@@ -37,6 +37,7 @@ class PluginStreamMapper(StreamMapper):
         self.worker_log = worker_log if isinstance(worker_log, list) else None
         self.abspath = None
         self.settings = None
+        self.media_file_mode = 'audio_file'
         self.complex_audio_filters = {}
         self.forced_encode = False
         self.execution_stage = False
@@ -48,10 +49,12 @@ class PluginStreamMapper(StreamMapper):
         self.set_probe(probe)
         self.set_input_file(abspath)
         self.settings = settings
+        self.media_file_mode = tools.get_media_file_mode(abspath) or 'audio_file'
         tools.append_worker_log(
             self.worker_log,
-            "Stream mapper configured (mode='{}', encoder='{}')".format(
+            "Stream mapper configured (mode='{}', media_mode='{}', encoder='{}')".format(
                 self.settings.get_setting('mode'),
+                self.media_file_mode,
                 self.settings.get_setting('audio_encoder'),
             )
         )
@@ -279,6 +282,10 @@ class PluginStreamMapper(StreamMapper):
         }
 
     def set_output_file(self, path):
+        if self.media_file_mode == 'video_file':
+            self.output_file = os.path.abspath(path)
+            return self.output_file
+
         encoder_name = self.settings.get_setting('audio_encoder')
         encoder = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
         container_extension = encoder.get_output_file_extension(encoder_name)

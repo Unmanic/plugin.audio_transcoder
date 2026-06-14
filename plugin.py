@@ -128,7 +128,7 @@ def on_library_management_file_test(data, task_data_store=None, file_metadata=No
     settings = Settings(library_id=data.get('library_id'), apply_default_fallbacks=False)
     abspath = data.get('path')
 
-    probe = Probe.init_probe(data, logger, allowed_mimetypes=['audio'])
+    probe = Probe.init_probe(data, logger, allowed_mimetypes=['audio', 'video'])
     if not probe or not probe.file(abspath):
         return
 
@@ -156,7 +156,7 @@ def on_worker_process(data, task_data_store=None, file_metadata=None):
     abspath = data.get('file_in')
 
     tools.append_worker_log(worker_log, "Probing file: {}".format(abspath))
-    probe = Probe(logger, allowed_mimetypes=['audio'])
+    probe = Probe(logger, allowed_mimetypes=['audio', 'video'])
     if not probe.file(abspath):
         tools.append_worker_log(worker_log, "Probe failed - skipping file")
         return

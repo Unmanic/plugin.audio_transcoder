@@ -1,4 +1,7 @@
 
+**<span style="color:#56adda">0.0.4</span>**
+- Rebrand the plugin as Transcode Audio and add support for transcoding audio streams in video/media files while copying non-audio streams and preserving the source container
+
 **<span style="color:#56adda">0.0.3</span>**
 - Add smart output target to Basic mode so matching audio codecs can be re-encoded when they are significantly above the recommended bitrate window
 
