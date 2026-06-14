@@ -21,104 +21,98 @@
         If not, see <https://www.gnu.org/licenses/>.
 
 """
+from audio_transcoder.lib.encoders.base import Encoder
 
 
-class AacEncoder:
-    encoders = [
-        "aac",
-    ]
+class AacEncoder(Encoder):
+    def __init__(self, settings=None, probe=None):
+        super().__init__(settings=settings, probe=probe)
 
-    def __init__(self, settings):
-        self.settings = settings
+    def provides(self):
+        return {
+            "aac": {
+                "codec": "aac",
+                "label": "Native FFmpeg AAC encoder",
+            },
+        }
 
-    @staticmethod
-    def options():
+    def options(self):
         return {
             "aac_encoder_ratecontrol_method": "CBR",
             "aac_constant_quality_scale":     "2",
             "aac_average_bitrate":            "96",
         }
 
-    @staticmethod
-    def generate_default_args(settings):
-        """
-        Generate a list of args for using a lib decoder
+    def generate_default_args(self):
+        return {}, {}
 
-        :param settings:
-        :return:
-        """
-        # No default args required
-        generic_kwargs = {}
-        advanced_kwargs = {}
-        return generic_kwargs, advanced_kwargs
+    def generate_filtergraphs(self, current_filter_args, smart_filters, encoder_name):
+        return {
+            "generic_kwargs":    {},
+            "advanced_kwargs":   {},
+            "smart_filters":     smart_filters,
+            "start_filter_args": [],
+            "end_filter_args":   [],
+        }
 
-    @staticmethod
-    def generate_filtergraphs():
-        """
-        Generate the required filter for this encoder
-        No filters are required for lib encoders
-
-        :return:
-        """
-        return []
-
-    @staticmethod
-    def get_output_file_extension(encoder):
-        """
-        Given an encoder, return the required file extension for that codec
-        :param encoder:
-        :return:
-        """
+    def get_output_file_extension(self, encoder):
         if encoder == "aac":
             return "m4a"
         return ""
 
-    def args(self, stream_id):
-        stream_encoding = []
+    def stream_args(self, stream_info, stream_id, encoder_name, filter_state=None):
+        generic_kwargs = {}
+        advanced_kwargs = {}
+        encoder_args = []
+        stream_args = []
 
-        # Use defaults for basic mode
         if self.settings.get_setting('mode') in ['basic']:
-            defaults = self.options()
-            stream_encoding += [
-                '-qscale:a', str(self.settings.get_setting('aac_constant_quality_scale')),
+            stream_args += [
+                '-q:a', str(self.settings.get_setting('aac_constant_quality_scale')),
             ]
-            return stream_encoding
+            return {
+                "generic_kwargs":  generic_kwargs,
+                "advanced_kwargs": advanced_kwargs,
+                "encoder_args":    encoder_args,
+                "stream_args":     stream_args,
+            }
 
         if self.settings.get_setting('aac_encoder_ratecontrol_method') in ['VBR']:
-            # Set values for constant quantizer scale
-            stream_encoding += [
+            stream_args += [
                 '-q:a', str(self.settings.get_setting('aac_constant_quality_scale')),
             ]
         elif self.settings.get_setting('aac_encoder_ratecontrol_method') in ['CBR']:
-            # Set values for constant quantizer scale
-            stream_encoding += [
+            stream_args += [
                 '-b:a', "{}k".format(self.settings.get_setting('aac_average_bitrate')),
             ]
 
-        return stream_encoding
+        return {
+            "generic_kwargs":  generic_kwargs,
+            "advanced_kwargs": advanced_kwargs,
+            "encoder_args":    encoder_args,
+            "stream_args":     stream_args,
+        }
 
     def __set_default_option(self, select_options, key, default_option=None):
-        """
-        Sets the default option if the currently set option is not available
-
-        :param select_options:
-        :param key:
-        :return:
-        """
         available_options = []
         for option in select_options:
             available_options.append(option.get('value'))
             if not default_option:
                 default_option = option.get('value')
-        if self.settings.get_setting(key) not in available_options:
-            self.settings.set_setting(key, default_option)
+        current_value = self.settings.get_setting(key)
+        if not getattr(self.settings, 'apply_default_fallbacks', True):
+            return current_value
+        if current_value not in available_options:
+            self.settings.settings_configured[key] = default_option
+            return default_option
+        return current_value
 
     def get_aac_encoder_ratecontrol_method_form_settings(self):
         values = {
             "label":          "Encoder ratecontrol method",
             "sub_setting":    True,
             "input_type":     "select",
-            "select_options": []
+            "select_options": [],
         }
         common_select_options = [
             {
@@ -133,13 +127,20 @@ class AacEncoder:
                     "label": "CBR - Constant Bitrate",
                 },
             ]
-        self.__set_default_option(values['select_options'], 'aac_encoder_ratecontrol_method', default_option='VBR')
+        selected_method = self.__set_default_option(
+            values['select_options'],
+            'aac_encoder_ratecontrol_method',
+            default_option='VBR',
+        )
+        if getattr(self.settings, 'apply_default_fallbacks', True):
+            current_value = self.settings.get_setting('aac_encoder_ratecontrol_method')
+            if selected_method and selected_method != current_value:
+                self.settings.set_setting('aac_encoder_ratecontrol_method', selected_method)
         if self.settings.get_setting('mode') not in ['standard']:
             values["display"] = "hidden"
         return values
 
     def get_aac_constant_quality_scale_form_settings(self):
-        # Lower is better
         values = {
             "label":          "Quality scale",
             "description":    "",
@@ -165,107 +166,32 @@ class AacEncoder:
             "sub_setting":    True,
             "input_type":     "select",
             "select_options": [
-                {
-                    "value": "10",
-                    "label": "10kbps",
-                },
-                {
-                    "value": "12",
-                    "label": "12kbps",
-                },
-                {
-                    "value": "14",
-                    "label": "14kbps",
-                },
-                {
-                    "value": "16",
-                    "label": "16kbps",
-                },
-                {
-                    "value": "20",
-                    "label": "20kbps",
-                },
-                {
-                    "value": "24",
-                    "label": "24kbps",
-                },
-                {
-                    "value": "28",
-                    "label": "28kbps",
-                },
-                {
-                    "value": "32",
-                    "label": "32kbps",
-                },
-                {
-                    "value": "40",
-                    "label": "40kbps",
-                },
-                {
-                    "value": "48",
-                    "label": "48kbps",
-                },
-                {
-                    "value": "56",
-                    "label": "56kbps",
-                },
-                {
-                    "value": "64",
-                    "label": "64kbps",
-                },
-                {
-                    "value": "80",
-                    "label": "80kbps",
-                },
-                {
-                    "value": "96",
-                    "label": "96kbps",
-                },
-                {
-                    "value": "112",
-                    "label": "112kbps",
-                },
-                {
-                    "value": "128",
-                    "label": "128kbps",
-                },
-                {
-                    "value": "160",
-                    "label": "160kbps",
-                },
-                {
-                    "value": "192",
-                    "label": "192kbps",
-                },
-                {
-                    "value": "224",
-                    "label": "224kbps",
-                },
-                {
-                    "value": "256",
-                    "label": "256kbps",
-                },
-                {
-                    "value": "320",
-                    "label": "320kbps",
-                },
-                {
-                    "value": "384",
-                    "label": "384kbps",
-                },
-                {
-                    "value": "448",
-                    "label": "448kbps",
-                },
-                {
-                    "value": "512",
-                    "label": "512kbps",
-                },
-                {
-                    "value": "576",
-                    "label": "576kbps",
-                },
-            ]
+                {"value": "10", "label": "10kbps"},
+                {"value": "12", "label": "12kbps"},
+                {"value": "14", "label": "14kbps"},
+                {"value": "16", "label": "16kbps"},
+                {"value": "20", "label": "20kbps"},
+                {"value": "24", "label": "24kbps"},
+                {"value": "28", "label": "28kbps"},
+                {"value": "32", "label": "32kbps"},
+                {"value": "40", "label": "40kbps"},
+                {"value": "48", "label": "48kbps"},
+                {"value": "56", "label": "56kbps"},
+                {"value": "64", "label": "64kbps"},
+                {"value": "80", "label": "80kbps"},
+                {"value": "96", "label": "96kbps"},
+                {"value": "112", "label": "112kbps"},
+                {"value": "128", "label": "128kbps"},
+                {"value": "160", "label": "160kbps"},
+                {"value": "192", "label": "192kbps"},
+                {"value": "224", "label": "224kbps"},
+                {"value": "256", "label": "256kbps"},
+                {"value": "320", "label": "320kbps"},
+                {"value": "384", "label": "384kbps"},
+                {"value": "448", "label": "448kbps"},
+                {"value": "512", "label": "512kbps"},
+                {"value": "576", "label": "576kbps"},
+            ],
         }
         if self.settings.get_setting('mode') not in ['standard']:
             values["display"] = "hidden"

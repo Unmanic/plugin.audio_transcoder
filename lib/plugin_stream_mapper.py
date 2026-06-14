@@ -24,124 +24,202 @@
 import logging
 import os
 
-from audio_transcoder.lib.encoders.aac import AacEncoder
-from audio_transcoder.lib.encoders.lame import LameEncoder
+from audio_transcoder.lib import tools
 from audio_transcoder.lib.ffmpeg import StreamMapper
 
 logger = logging.getLogger("Unmanic.Plugin.audio_transcoder")
 
 
 class PluginStreamMapper(StreamMapper):
-    def __init__(self):
+    def __init__(self, worker_log=None):
         super(PluginStreamMapper, self).__init__(logger, ['audio'])
+        self.worker_log = worker_log if isinstance(worker_log, list) else None
         self.abspath = None
         self.settings = None
         self.complex_audio_filters = {}
-        self.crop_value = None
         self.forced_encode = False
-
-    @staticmethod
-    def get_encoders(settings):
-        """
-        Return a dictionary of encoders and their controller classes
-        :return:
-        """
-        return {
-            "libmp3lame": LameEncoder(settings),
-            "aac":        AacEncoder(settings),
-        }
+        self.execution_stage = False
 
     def set_default_values(self, settings, abspath, probe):
-        """
-        Configure the stream mapper with defaults
-
-        :param settings:
-        :param abspath:
-        :param probe:
-        :return:
-        """
+        self.execution_stage = False
         self.abspath = abspath
-        # Set the file probe data
         self.set_probe(probe)
-        # Set the input file
         self.set_input_file(abspath)
-        # Configure settings
         self.settings = settings
+        tools.append_worker_log(
+            self.worker_log,
+            "Stream mapper configured (mode='{}', encoder='{}')".format(
+                self.settings.get_setting('mode'),
+                self.settings.get_setting('audio_encoder'),
+            )
+        )
 
-        # Set default Advanced options
-        self.advanced_options = [
-            '-strict', '-2',
-        ]
-
-        # Build default options of advanced mode
         if self.settings.get_setting('mode') == 'advanced':
-            # If any main options are provided, overwrite them
             main_options = settings.get_setting('main_options').split()
             if main_options:
-                # Overwrite all main options
                 self.main_options = main_options
             advanced_options = settings.get_setting('advanced_options').split()
             if advanced_options:
-                # Overwrite all advanced options
                 self.advanced_options = advanced_options
-            # Don't apply any other settings
             return
 
-        # Build default options of standard mode
-        if self.settings.get_setting('mode') == 'standard':
-            # No standard mode defaults yet exist
-            pass
+        encoder_name = self.settings.get_setting('audio_encoder')
+        encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
+        if encoder_lib:
+            generic_kwargs, advanced_kwargs = encoder_lib.generate_default_args()
+            self.set_ffmpeg_generic_options(**generic_kwargs)
+            self.set_ffmpeg_advanced_options(**advanced_kwargs)
 
-        # Build encoder specific args based on configured encoder
-        # Note: these are not applied to advanced mode - advanced mode was returned above
-        encoder = self.get_encoders(self.settings).get(self.settings.get_setting('audio_encoder'))
-        generic_kwargs, advanced_kwargs = encoder.generate_default_args(self.settings)
-        self.set_ffmpeg_generic_options(**generic_kwargs)
-        self.set_ffmpeg_advanced_options(**advanced_kwargs)
+    def enable_execution_stage(self):
+        self.execution_stage = True
+        tools.append_worker_log(self.worker_log, "Stream mapper entering execution stage")
+        self.stream_mapping = []
+        self.stream_encoding = []
+        self.complex_audio_filters = {}
+
+    def streams_need_processing(self):
+        tools.append_worker_log(
+            self.worker_log,
+            "Stream mapper building stream mapping (stage='{}')".format(
+                "execution" if self.execution_stage else "analysis"
+            )
+        )
+        needs_processing = super(PluginStreamMapper, self).streams_need_processing()
+        tools.append_worker_log(
+            self.worker_log,
+            "Stream mapper stream summary (video={}, audio={}, subtitle={}, data={}, attachment={})".format(
+                self.video_stream_count,
+                self.audio_stream_count,
+                self.subtitle_stream_count,
+                self.data_stream_count,
+                self.attachment_stream_count,
+            )
+        )
+        return needs_processing
+
+    def build_filter_chain(self, stream_info, stream_id):
+        tools.append_worker_log(self.worker_log, "Stream mapper building filter chain for audio stream {}".format(stream_id))
+        filter_args = []
+        source_channels = stream_info.get('channels')
+        source_layout = stream_info.get('channel_layout')
+        source_sample_rate = stream_info.get('sample_rate')
+        filter_state = {
+            "source_channels":       source_channels,
+            "target_channels":       source_channels,
+            "source_layout":         source_layout,
+            "target_layout":         source_layout,
+            "source_sample_rate":    source_sample_rate,
+            "target_sample_rate":    source_sample_rate,
+            "normalization_applied": False,
+            "downmix_applied":       False,
+            "resample_applied":      False,
+            "execution_stage":       self.execution_stage,
+        }
+
+        encoder_name = self.settings.get_setting('audio_encoder')
+        encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
+
+        smart_filters = []
+
+        filtergraph_config = {}
+        if encoder_lib:
+            filtergraph_config = encoder_lib.generate_filtergraphs(
+                filter_args,
+                smart_filters,
+                encoder_name,
+            )
+
+        smart_filters = filtergraph_config.get('smart_filters', smart_filters)
+        for smart_filter in smart_filters:
+            for _, filter_data in smart_filter.items():
+                filter_args.append(filter_data.get('filter'))
+
+        if self.settings.get_setting('apply_custom_filters'):
+            for audio_filter in self.settings.get_setting('custom_audio_filters').splitlines():
+                if audio_filter.strip():
+                    filter_args.append(audio_filter.strip())
+
+        self.set_ffmpeg_generic_options(**filtergraph_config.get('generic_kwargs', {}))
+        self.set_ffmpeg_advanced_options(**filtergraph_config.get('advanced_kwargs', {}))
+
+        start_filter_args = filtergraph_config.get('start_filter_args', [])
+        end_filter_args = filtergraph_config.get('end_filter_args', [])
+        filter_args = start_filter_args + filter_args + end_filter_args
+
+        if not filter_args:
+            self.complex_audio_filters[stream_id] = filter_state
+            return None, None, filter_state
+
+        filter_id = '0:a:{}'.format(stream_id)
+        filter_id, filtergraph = tools.join_filtergraph(filter_id, filter_args, stream_id)
+
+        self.complex_audio_filters[stream_id] = filter_state
+        return filter_id, filtergraph, filter_state
 
     def test_stream_needs_processing(self, stream_info: dict):
-        """
-        Tests if the command will need to transcode the audio stream
-            - Return false if the stream should just be copied
-            - Return true to transcode this stream (configured by the 'custom_stream_mapping' method)
+        codec_type = stream_info.get('codec_type', '').lower()
+        codec_name = stream_info.get('codec_name', '').lower()
 
-        :param stream_info:
-        :return:
-        """
-        # If the stream is an audio, add a final check if the codec is already the correct format
-        #   (Ignore checks if force transcode is set)
-        if stream_info.get('codec_type', '').lower() in ['audio'] and stream_info.get(
-                'codec_name').lower() == self.settings.get_setting('audio_codec'):
-            if not self.settings.get_setting('force_transcode'):
-                return False
-            else:
+        if codec_type in ['audio']:
+            if self.settings.get_setting('apply_custom_filters') and self.settings.get_setting('custom_audio_filters').strip():
+                return True
+            if codec_name == self.settings.get_setting('audio_codec'):
+                if not self.settings.get_setting('force_transcode'):
+                    return False
                 self.forced_encode = True
 
-        # All other streams should be custom mapped
         return True
 
     def custom_stream_mapping(self, stream_info: dict, stream_id: int):
-        """
-        Generate the custom stream mapping and encoding args for the given stream based on the configured settings
-
-        :param stream_info:
-        :param stream_id:
-        :return:
-        """
         codec_type = stream_info.get('codec_type', '').lower()
         stream_specifier = '{}:{}'.format(self.stream_type_idents.get(codec_type), stream_id)
         map_identifier = '0:{}'.format(stream_specifier)
-        if self.settings.get_setting('mode') == 'advanced':
-            stream_encoding = ['-c:{}'.format(stream_specifier)]
-            stream_encoding += self.settings.get_setting('custom_options').split()
-        else:
-            stream_encoding = [
-                '-c:{}'.format(stream_specifier), self.settings.get_setting('audio_encoder'),
-            ]
+        encoder_name = self.settings.get_setting('audio_encoder')
 
-            # Add encoder args
-            encoder = self.get_encoders(self.settings).get(self.settings.get_setting('audio_encoder'))
-            stream_encoding += encoder.args(stream_id)
+        if codec_type in ['audio']:
+            tools.append_worker_log(
+                self.worker_log,
+                "Stream mapper mapping audio stream {} for encoding (encoder='{}')".format(stream_id, encoder_name)
+            )
+            if self.settings.get_setting('mode') == 'advanced':
+                stream_encoding = ['-c:{}'.format(stream_specifier)]
+                stream_encoding += self.settings.get_setting('custom_options').split()
+            else:
+                filter_id, filter_complex, filter_state = self.build_filter_chain(stream_info, stream_id)
+                if filter_complex:
+                    map_identifier = '[{}]'.format(filter_id)
+                    self.set_ffmpeg_advanced_options(**{"-filter_complex": filter_complex})
+                else:
+                    filter_state = self.complex_audio_filters.get(stream_id, {
+                        "source_channels":       stream_info.get('channels'),
+                        "target_channels":       stream_info.get('channels'),
+                        "source_layout":         stream_info.get('channel_layout'),
+                        "target_layout":         stream_info.get('channel_layout'),
+                        "source_sample_rate":    stream_info.get('sample_rate'),
+                        "target_sample_rate":    stream_info.get('sample_rate'),
+                        "normalization_applied": False,
+                        "downmix_applied":       False,
+                        "resample_applied":      False,
+                        "execution_stage":       self.execution_stage,
+                    })
+
+                stream_encoding = [
+                    '-c:{}'.format(stream_specifier), encoder_name,
+                ]
+                encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
+                if encoder_lib:
+                    stream_args = encoder_lib.stream_args(
+                        stream_info,
+                        stream_id,
+                        encoder_name,
+                        filter_state=filter_state,
+                    )
+                    stream_encoding += stream_args.get("encoder_args", [])
+                    stream_encoding += stream_args.get("stream_args", [])
+                    self.set_ffmpeg_generic_options(**stream_args.get("generic_kwargs", {}))
+                    self.set_ffmpeg_advanced_options(**stream_args.get("advanced_kwargs", {}))
+        else:
+            raise Exception("Unsupported codec type {}".format(codec_type))
 
         return {
             'stream_mapping':  ['-map', map_identifier],
@@ -149,19 +227,10 @@ class PluginStreamMapper(StreamMapper):
         }
 
     def set_output_file(self, path):
-        """
-        Set the output file for the FFmpeg args based on the configured codec
-
-        :param path:
-        :return:
-        """
-        # Get the container extension
-        encoder = self.get_encoders(self.settings).get(self.settings.get_setting('audio_encoder'))
-        container_extension = encoder.get_output_file_extension(self.settings.get_setting('audio_encoder'))
-        # Remove the extension from the current file out path and replace with the encoder extension
+        encoder_name = self.settings.get_setting('audio_encoder')
+        encoder = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
+        container_extension = encoder.get_output_file_extension(encoder_name)
         split_file_out = os.path.splitext(path)
         new_file_out = "{}.{}".format(split_file_out[0], container_extension)
-        # Set the output file path
         self.output_file = os.path.abspath(new_file_out)
-        # Return the output file path
         return self.output_file

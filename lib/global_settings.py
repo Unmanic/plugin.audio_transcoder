@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
-###
-# File: global_settings.py
-# Project: lib
-# File Created: Friday, 26th August 2022 5:06:41 pm
-# Author: Josh.5 (jsunnex@gmail.com)
-# -----
-# Last Modified: Monday, 29th August 2022 10:34:26 pm
-# Modified By: Josh.5 (jsunnex@gmail.com)
-###
-# !/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
     plugins.global_settings.py
@@ -32,16 +21,24 @@
         If not, see <https://www.gnu.org/licenses/>.
 
 """
+from audio_transcoder.lib import tools
+
+supported_codecs = {
+    "aac": {
+        "label": "AAC",
+    },
+    "mp3": {
+        "label": "MP3",
+    },
+}
 
 
 class GlobalSettings:
-
     def __init__(self, settings):
         self.settings = settings
 
     @staticmethod
     def options():
-        # Global and main config options
         return {
             "main_options":           {
                 "mode": "basic",
@@ -57,9 +54,11 @@ class GlobalSettings:
                 "custom_options":   "libmp3lame\n"
                                     "-b:a 192k\n",
             },
-            "output_settings":        {
-            },
+            "output_settings":        {},
             "filter_settings":        {
+                "apply_smart_filters":  False,
+                "apply_custom_filters": False,
+                "custom_audio_filters": "",
             },
         }
 
@@ -76,8 +75,13 @@ class GlobalSettings:
             available_options.append(option.get("value"))
             if not default_option:
                 default_option = option.get("value")
-        if self.settings.get_setting(key) not in available_options:
-            self.settings.set_setting(key, default_option)
+        current_value = self.settings.get_setting(key)
+        if not getattr(self.settings, 'apply_default_fallbacks', True):
+            return current_value
+        if current_value not in available_options:
+            self.settings.settings_configured[key] = default_option
+            return default_option
+        return current_value
 
     def get_mode_form_settings(self):
         return {
@@ -103,17 +107,20 @@ class GlobalSettings:
         values = {
             "label":          "Audio Codec",
             "input_type":     "select",
-            "select_options": [
-                {
-                    "value": "aac",
-                    "label": "AAC",
-                },
-                {
-                    "value": "mp3",
-                    "label": "MP3",
-                },
-            ],
+            "select_options": [],
         }
+        for key in supported_codecs:
+            values['select_options'].append(
+                {
+                    "value": key,
+                    "label": supported_codecs.get(key, {}).get('label'),
+                }
+            )
+        selected_codec = self.__set_default_option(values['select_options'], 'audio_codec', default_option='mp3')
+        if getattr(self.settings, 'apply_default_fallbacks', True):
+            current_value = self.settings.get_setting('audio_codec')
+            if selected_codec and selected_codec != current_value:
+                self.settings.set_setting('audio_codec', selected_codec)
         if self.settings.get_setting('mode') not in ['basic', 'standard', 'advanced']:
             values["display"] = 'hidden'
         return values
@@ -121,7 +128,7 @@ class GlobalSettings:
     def get_force_transcode_form_settings(self):
         values = {
             "label":       "Force transcoding even if the file is already using the desired audio codec",
-            "description": "Will force a transcode of the audio file even if it matches the selected audio codec.\n"
+            "description": "Will force a transcode of the audio stream even if it matches the selected audio codec.\n"
                            "A file will only be forced to be transcoded once.\n"
                            "After that it is flagged to prevent it being added to the pending tasks list in a loop.",
             "sub_setting": True,
@@ -136,26 +143,53 @@ class GlobalSettings:
             "input_type":     "select",
             "select_options": [],
         }
-        if self.settings.get_setting('audio_codec') == 'aac':
-            # TODO: Add libfdk_aac encoder
-            #   {
-            #       "value": "libfdk_aac",
-            #       "label": "Fraunhofer FDK AAC",
-            #   },
-            values['select_options'] = [
+        encoder_libs = tools.available_encoders(settings=self.settings)
+        for encoder_name, encoder_lib in encoder_libs.items():
+            encoder_details = encoder_lib.encoder_details(encoder_name)
+            if encoder_details.get('codec') != self.settings.get_setting('audio_codec'):
+                continue
+            values['select_options'].append(
                 {
-                    "value": "aac",
-                    "label": "Native FFmpeg AAC encoder",
-                },
-            ]
-        elif self.settings.get_setting('audio_codec') == 'mp3':
-            values['select_options'] = [
-                {
-                    "value": "libmp3lame",
-                    "label": "LAME - libmp3lame",
-                },
-            ]
-        self.__set_default_option(values['select_options'], 'audio_encoder')
+                    "value": encoder_name,
+                    "label": encoder_details.get('label'),
+                }
+            )
+        selected_encoder = self.__set_default_option(values['select_options'], 'audio_encoder')
+        if getattr(self.settings, 'apply_default_fallbacks', True):
+            current_encoder = self.settings.get_setting('audio_encoder')
+            if selected_encoder and selected_encoder != current_encoder:
+                self.settings.set_setting('audio_encoder', selected_encoder)
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_apply_smart_filters_form_settings(self):
+        values = {
+            "label":   "Enable plugin's smart audio filters",
+            "tooltip": "Prepares the audio transcoder for filtergraph-based smart processing.",
+        }
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_apply_custom_filters_form_settings(self):
+        values = {
+            "label":       "Apply custom audio filters",
+            "description": "Append one FFmpeg audio filter per line to the generated filtergraph.",
+            "sub_setting": True,
+        }
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_custom_audio_filters_form_settings(self):
+        values = {
+            "label":      "Custom audio filters",
+            "input_type": "textarea",
+            "sub_setting": True,
+        }
+        if not self.settings.get_setting('apply_custom_filters'):
+            values["display"] = 'hidden'
         if self.settings.get_setting('mode') not in ['basic', 'standard']:
             values["display"] = 'hidden'
         return values
