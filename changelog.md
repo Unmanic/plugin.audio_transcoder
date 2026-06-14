@@ -1,4 +1,7 @@
 
+**<span style="color:#56adda">0.0.5</span>**
+- Add smart audio filters for maximum channel count and loudness normalization, and warn when a selected codec such as MP3 is a poor fit for multichannel output
+
 **<span style="color:#56adda">0.0.4</span>**
 - Rebrand the plugin as Transcode Audio and add support for transcoding audio streams in video/media files while copying non-audio streams and preserving the source container
 

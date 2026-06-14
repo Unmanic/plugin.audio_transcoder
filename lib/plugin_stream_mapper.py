@@ -43,6 +43,37 @@ class PluginStreamMapper(StreamMapper):
         self.execution_stage = False
         self.stream_recommendations = {}
 
+    def _get_target_channel_count(self, stream_info):
+        source_channels = stream_info.get('channels')
+        encoder_name = self.settings.get_setting('audio_encoder')
+        encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
+        encoder_details = encoder_lib.encoder_details(encoder_name) if encoder_lib else {}
+        codec_max_channels = encoder_details.get('max_channels')
+
+        max_channel_count = None
+        if self.settings.get_setting('enable_smart_audio_filters'):
+            max_channel_count = tools.parse_max_channel_count(self.settings.get_setting('max_channel_count'))
+
+        try:
+            source_channels = int(source_channels)
+        except (TypeError, ValueError):
+            source_channels = None
+
+        target_channels = source_channels
+        if max_channel_count:
+            if target_channels is None:
+                target_channels = max_channel_count
+            else:
+                target_channels = min(target_channels, max_channel_count)
+
+        if codec_max_channels:
+            if target_channels is None:
+                target_channels = codec_max_channels
+            else:
+                target_channels = min(target_channels, codec_max_channels)
+
+        return target_channels
+
     def set_default_values(self, settings, abspath, probe):
         self.execution_stage = False
         self.abspath = abspath
@@ -109,9 +140,10 @@ class PluginStreamMapper(StreamMapper):
         source_channels = stream_info.get('channels')
         source_layout = stream_info.get('channel_layout')
         source_sample_rate = stream_info.get('sample_rate')
+        target_channels = self._get_target_channel_count(stream_info)
         filter_state = {
             "source_channels":       source_channels,
-            "target_channels":       source_channels,
+            "target_channels":       target_channels,
             "source_layout":         source_layout,
             "target_layout":         source_layout,
             "source_sample_rate":    source_sample_rate,
@@ -126,6 +158,25 @@ class PluginStreamMapper(StreamMapper):
         encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
 
         smart_filters = []
+        if self.settings.get_setting('enable_smart_audio_filters'):
+            if target_channels and source_channels and int(target_channels) < int(source_channels):
+                filter_state["downmix_applied"] = True
+                if int(target_channels) == 1:
+                    filter_state["target_layout"] = "mono"
+                elif int(target_channels) == 2:
+                    filter_state["target_layout"] = "stereo"
+                elif int(target_channels) == 6:
+                    filter_state["target_layout"] = "5.1"
+                elif int(target_channels) == 8:
+                    filter_state["target_layout"] = "7.1"
+
+            if self.settings.get_setting('normalize_audio_volume'):
+                smart_filters.append({
+                    "loudnorm": {
+                        "filter": "loudnorm=I=-16:TP=-1.5:LRA=11"
+                    }
+                })
+                filter_state["normalization_applied"] = True
 
         filtergraph_config = {}
         if encoder_lib:
@@ -168,6 +219,17 @@ class PluginStreamMapper(StreamMapper):
 
         if codec_type in ['audio']:
             if (
+                self.settings.get_setting('enable_smart_audio_filters') and (
+                    (
+                        self.settings.get_setting('normalize_audio_volume')
+                    ) or (
+                        self._get_target_channel_count(stream_info) and
+                        int(self._get_target_channel_count(stream_info)) < int(stream_info.get('channels') or 0)
+                    )
+                )
+            ):
+                return True
+            if (
                 self.settings.get_setting('mode') == 'standard' and
                 self.settings.get_setting('apply_custom_filters') and
                 self.settings.get_setting('custom_audio_filters').strip()
@@ -185,6 +247,7 @@ class PluginStreamMapper(StreamMapper):
                         self.settings.get_setting('audio_codec'),
                         self.settings.get_setting('audio_encoder'),
                         self.settings.get_setting('smart_output_target'),
+                        target_channels=self._get_target_channel_count(stream_info),
                     )
                     self.stream_recommendations[stream_info.get('index', len(self.stream_recommendations))] = recommendation
                     if recommendation.get('should_transcode_for_bitrate'):
@@ -251,6 +314,7 @@ class PluginStreamMapper(StreamMapper):
                                 self.settings.get_setting('audio_codec'),
                                 encoder_name,
                                 self.settings.get_setting('smart_output_target'),
+                                target_channels=filter_state.get('target_channels'),
                             )
                             self.stream_recommendations[stream_id] = recommendation
                         tools.append_worker_log(

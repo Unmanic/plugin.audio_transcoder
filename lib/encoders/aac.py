@@ -32,8 +32,9 @@ class AacEncoder(Encoder):
     def provides(self):
         return {
             "aac": {
-                "codec": "aac",
-                "label": "Native FFmpeg AAC encoder",
+                "codec":        "aac",
+                "label":        "Native FFmpeg AAC encoder",
+                "max_channels": 8,
             },
         }
 
@@ -66,6 +67,12 @@ class AacEncoder(Encoder):
         advanced_kwargs = {}
         encoder_args = []
         stream_args = []
+        target_channels = None
+        if filter_state:
+            try:
+                target_channels = int(filter_state.get('target_channels'))
+            except (TypeError, ValueError):
+                target_channels = None
 
         if self.settings.get_setting('mode') in ['basic']:
             if self.settings.get_setting('enable_smart_output_target') and self.probe:
@@ -75,12 +82,17 @@ class AacEncoder(Encoder):
                     self.settings.get_setting('audio_codec'),
                     encoder_name,
                     self.settings.get_setting('smart_output_target'),
+                    target_channels=target_channels,
                 )
                 target_kbps = recommendation.get('recommended_target_kbps')
                 if target_kbps:
                     stream_args += [
                         '-b:a', "{}k".format(target_kbps),
                     ]
+                    if target_channels:
+                        stream_args += [
+                            '-ac:a:{}'.format(stream_id), str(target_channels),
+                        ]
                     return {
                         "generic_kwargs":  generic_kwargs,
                         "advanced_kwargs": advanced_kwargs,
@@ -91,6 +103,10 @@ class AacEncoder(Encoder):
             stream_args += [
                 '-q:a', str(self.settings.get_setting('aac_constant_quality_scale')),
             ]
+            if target_channels:
+                stream_args += [
+                    '-ac:a:{}'.format(stream_id), str(target_channels),
+                ]
             return {
                 "generic_kwargs":  generic_kwargs,
                 "advanced_kwargs": advanced_kwargs,
@@ -105,6 +121,11 @@ class AacEncoder(Encoder):
         elif self.settings.get_setting('aac_encoder_ratecontrol_method') in ['CBR']:
             stream_args += [
                 '-b:a', "{}k".format(self.settings.get_setting('aac_average_bitrate')),
+            ]
+
+        if target_channels:
+            stream_args += [
+                '-ac:a:{}'.format(stream_id), str(target_channels),
             ]
 
         return {

@@ -330,13 +330,14 @@ class SmartAudioBitrateHelper:
         max_fit = int(round(recommended_target_kbps * upper_factor))
         return estimated_source_kbps <= max_fit, max_fit
 
-    def recommend_params(self, stream_info, target_codec, target_encoder, goal):
+    def recommend_params(self, stream_info, target_codec, target_encoder, goal, target_channels=None):
         target_codec = (target_codec or "aac").lower()
         requested_goal = goal or self.GOAL_BALANCED
         goal = requested_goal if requested_goal in self._GOALS else self.GOAL_BALANCED
 
         source_codec = (stream_info.get("codec_name") or "").lower()
-        channels = self._safe_int(stream_info.get("channels")) or 2
+        source_channels = self._safe_int(stream_info.get("channels")) or 2
+        channels = self._safe_int(target_channels) or source_channels
         sample_rate = self._safe_int(stream_info.get("sample_rate")) or 44100
         bitrate_data = self._derive_source_bitrate(stream_info)
         derived_bitrate = bitrate_data.get("derived_bitrate")
@@ -377,7 +378,8 @@ class SmartAudioBitrateHelper:
             "target_codec": target_codec,
             "target_encoder": target_encoder,
             "source_codec": source_codec,
-            "source_channels": channels,
+            "source_channels": source_channels,
+            "target_channels": channels,
             "source_sample_rate": sample_rate,
             "source_bitrate_kbps": source_bitrate_kbps,
             "recommended_target_kbps": recommended_target_kbps,

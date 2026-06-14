@@ -74,3 +74,15 @@ def get_media_file_mode(path: str):
     if file_type_category == 'audio':
         return 'audio_file'
     return None
+
+
+def parse_max_channel_count(value):
+    if value in [None, '', 'same_as_source']:
+        return None
+    try:
+        parsed = int(value)
+        if parsed > 0:
+            return parsed
+    except (TypeError, ValueError):
+        return None
+    return None

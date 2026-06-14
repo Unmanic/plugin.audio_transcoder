@@ -26,11 +26,37 @@ from audio_transcoder.lib import tools
 supported_codecs = {
     "aac": {
         "label": "AAC",
+        "max_channels": 8,
     },
     "mp3": {
         "label": "MP3",
+        "max_channels": 2,
+        "multichannel_warning": "Warning: MP3 is effectively a stereo-target codec here. Using it on multichannel movie audio will downmix channels and is likely to be a poor fit for video libraries.",
     },
 }
+
+max_channel_count_options = [
+    {
+        "value": "same_as_source",
+        "label": "Same as source",
+    },
+    {
+        "value": "8",
+        "label": "7.1",
+    },
+    {
+        "value": "6",
+        "label": "5.1",
+    },
+    {
+        "value": "2",
+        "label": "2.0",
+    },
+    {
+        "value": "1",
+        "label": "1.0",
+    },
+]
 
 
 class GlobalSettings:
@@ -56,6 +82,9 @@ class GlobalSettings:
             },
             "output_settings":        {},
             "filter_settings":        {
+                "enable_smart_audio_filters": False,
+                "max_channel_count": "same_as_source",
+                "normalize_audio_volume": False,
                 "apply_custom_filters": False,
                 "custom_audio_filters": "",
             },
@@ -121,6 +150,9 @@ class GlobalSettings:
                 }
             )
         selected_codec = self.__set_default_option(values['select_options'], 'audio_codec', default_option='mp3')
+        selected_codec_details = supported_codecs.get(selected_codec, {})
+        if selected_codec_details.get('multichannel_warning'):
+            values["description"] = selected_codec_details.get('multichannel_warning')
         if getattr(self.settings, 'apply_default_fallbacks', True):
             current_value = self.settings.get_setting('audio_codec')
             if selected_codec and selected_codec != current_value:
@@ -213,6 +245,41 @@ class GlobalSettings:
         if not self.settings.get_setting('enable_smart_output_target'):
             values["display"] = 'hidden'
         if self.settings.get_setting('mode') not in ['basic']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_enable_smart_audio_filters_form_settings(self):
+        values = {
+            "label":       "Enable plugin's smart audio filters",
+            "description": "Apply audio-aware output shaping such as channel-count limiting and loudness normalization.",
+        }
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_max_channel_count_form_settings(self):
+        values = {
+            "label":          "Set maximum channel count",
+            "sub_setting":    True,
+            "input_type":     "select",
+            "select_options": max_channel_count_options,
+        }
+        self.__set_default_option(values['select_options'], 'max_channel_count', default_option='same_as_source')
+        if not self.settings.get_setting('enable_smart_audio_filters'):
+            values["display"] = 'hidden'
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_normalize_audio_volume_form_settings(self):
+        values = {
+            "label":       "Normalise audio volume levels",
+            "description": "Apply FFmpeg loudness normalization to the output audio stream.",
+            "sub_setting": True,
+        }
+        if not self.settings.get_setting('enable_smart_audio_filters'):
+            values["display"] = 'hidden'
+        if self.settings.get_setting('mode') not in ['basic', 'standard']:
             values["display"] = 'hidden'
         return values
 

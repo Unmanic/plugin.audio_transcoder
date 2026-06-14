@@ -6,6 +6,9 @@ Transcode Audio is designed to transcode audio streams in media files.
 It supports both audio-only source files and video/media containers. When processing a video/media file, the
 plugin transcodes only the audio streams and copies all non-audio streams through to the output unchanged.
 
+Smart audio filters can be enabled to constrain the maximum output channel count and apply loudness normalization
+to the transcoded audio stream.
+
 ##### Links:
 
 - [Support](https://unmanic.app/discord)
