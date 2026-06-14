@@ -87,6 +87,7 @@ class Settings(PluginSettings):
         advanced_input_options = global_settings.get('advanced_input_options')
         output_settings = global_settings.get('output_settings')
         filter_settings = global_settings.get('filter_settings')
+        smart_output_target = global_settings.get('smart_output_target')
         return {
             **main_options,
             **encoder_selection,
@@ -94,6 +95,7 @@ class Settings(PluginSettings):
             **advanced_input_options,
             **output_settings,
             **filter_settings,
+            **smart_output_target,
         }
 
 

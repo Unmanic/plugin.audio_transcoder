@@ -26,6 +26,7 @@ import os
 
 from audio_transcoder.lib import tools
 from audio_transcoder.lib.ffmpeg import StreamMapper
+from audio_transcoder.lib.smart_audio_bitrate import SmartAudioBitrateHelper
 
 logger = logging.getLogger("Unmanic.Plugin.audio_transcoder")
 
@@ -39,6 +40,7 @@ class PluginStreamMapper(StreamMapper):
         self.complex_audio_filters = {}
         self.forced_encode = False
         self.execution_stage = False
+        self.stream_recommendations = {}
 
     def set_default_values(self, settings, abspath, probe):
         self.execution_stage = False
@@ -76,6 +78,7 @@ class PluginStreamMapper(StreamMapper):
         self.stream_mapping = []
         self.stream_encoding = []
         self.complex_audio_filters = {}
+        self.stream_recommendations = {}
 
     def streams_need_processing(self):
         tools.append_worker_log(
@@ -134,7 +137,7 @@ class PluginStreamMapper(StreamMapper):
             for _, filter_data in smart_filter.items():
                 filter_args.append(filter_data.get('filter'))
 
-        if self.settings.get_setting('apply_custom_filters'):
+        if self.settings.get_setting('mode') == 'standard' and self.settings.get_setting('apply_custom_filters'):
             for audio_filter in self.settings.get_setting('custom_audio_filters').splitlines():
                 if audio_filter.strip():
                     filter_args.append(audio_filter.strip())
@@ -161,9 +164,36 @@ class PluginStreamMapper(StreamMapper):
         codec_name = stream_info.get('codec_name', '').lower()
 
         if codec_type in ['audio']:
-            if self.settings.get_setting('apply_custom_filters') and self.settings.get_setting('custom_audio_filters').strip():
+            if (
+                self.settings.get_setting('mode') == 'standard' and
+                self.settings.get_setting('apply_custom_filters') and
+                self.settings.get_setting('custom_audio_filters').strip()
+            ):
                 return True
             if codec_name == self.settings.get_setting('audio_codec'):
+                if (
+                    self.settings.get_setting('mode') in ['basic'] and
+                    self.settings.get_setting('enable_smart_output_target') and
+                    self.settings.get_setting('reencode_matching_codecs_above_target')
+                ):
+                    helper = SmartAudioBitrateHelper(self.probe)
+                    recommendation = helper.recommend_params(
+                        stream_info,
+                        self.settings.get_setting('audio_codec'),
+                        self.settings.get_setting('audio_encoder'),
+                        self.settings.get_setting('smart_output_target'),
+                    )
+                    self.stream_recommendations[stream_info.get('index', len(self.stream_recommendations))] = recommendation
+                    if recommendation.get('should_transcode_for_bitrate'):
+                        tools.append_worker_log(
+                            self.worker_log,
+                            "Audio stream bitrate exceeds smart target window (source={}k, target={}k, max_fit={}k)".format(
+                                recommendation.get('source_bitrate_kbps'),
+                                recommendation.get('recommended_target_kbps'),
+                                recommendation.get('max_fit_kbps'),
+                            )
+                        )
+                        return True
                 if not self.settings.get_setting('force_transcode'):
                     return False
                 self.forced_encode = True
@@ -208,6 +238,28 @@ class PluginStreamMapper(StreamMapper):
                 ]
                 encoder_lib = tools.available_encoders(settings=self.settings, probe=self.probe).get(encoder_name)
                 if encoder_lib:
+                    recommendation = None
+                    if self.settings.get_setting('mode') in ['basic'] and self.settings.get_setting('enable_smart_output_target'):
+                        recommendation = self.stream_recommendations.get(stream_id)
+                        if recommendation is None:
+                            helper = SmartAudioBitrateHelper(self.probe)
+                            recommendation = helper.recommend_params(
+                                stream_info,
+                                self.settings.get_setting('audio_codec'),
+                                encoder_name,
+                                self.settings.get_setting('smart_output_target'),
+                            )
+                            self.stream_recommendations[stream_id] = recommendation
+                        tools.append_worker_log(
+                            self.worker_log,
+                            "Smart bitrate target selected for audio stream {} (goal='{}', source={}k, target={}k, confidence='{}')".format(
+                                stream_id,
+                                recommendation.get('goal'),
+                                recommendation.get('source_bitrate_kbps'),
+                                recommendation.get('recommended_target_kbps'),
+                                recommendation.get('confidence'),
+                            )
+                        )
                     stream_args = encoder_lib.stream_args(
                         stream_info,
                         stream_id,

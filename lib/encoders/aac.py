@@ -22,6 +22,7 @@
 
 """
 from audio_transcoder.lib.encoders.base import Encoder
+from audio_transcoder.lib.smart_audio_bitrate import SmartAudioBitrateHelper
 
 
 class AacEncoder(Encoder):
@@ -67,6 +68,26 @@ class AacEncoder(Encoder):
         stream_args = []
 
         if self.settings.get_setting('mode') in ['basic']:
+            if self.settings.get_setting('enable_smart_output_target') and self.probe:
+                helper = SmartAudioBitrateHelper(self.probe)
+                recommendation = helper.recommend_params(
+                    stream_info,
+                    self.settings.get_setting('audio_codec'),
+                    encoder_name,
+                    self.settings.get_setting('smart_output_target'),
+                )
+                target_kbps = recommendation.get('recommended_target_kbps')
+                if target_kbps:
+                    stream_args += [
+                        '-b:a', "{}k".format(target_kbps),
+                    ]
+                    return {
+                        "generic_kwargs":  generic_kwargs,
+                        "advanced_kwargs": advanced_kwargs,
+                        "encoder_args":    encoder_args,
+                        "stream_args":     stream_args,
+                    }
+
             stream_args += [
                 '-q:a', str(self.settings.get_setting('aac_constant_quality_scale')),
             ]

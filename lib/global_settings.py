@@ -56,9 +56,13 @@ class GlobalSettings:
             },
             "output_settings":        {},
             "filter_settings":        {
-                "apply_smart_filters":  False,
                 "apply_custom_filters": False,
                 "custom_audio_filters": "",
+            },
+            "smart_output_target": {
+                "enable_smart_output_target":                 True,
+                "smart_output_target":                        "balanced",
+                "reencode_matching_codecs_above_target":     False,
             },
         }
 
@@ -163,12 +167,52 @@ class GlobalSettings:
             values["display"] = 'hidden'
         return values
 
-    def get_apply_smart_filters_form_settings(self):
+    def get_enable_smart_output_target_form_settings(self):
         values = {
-            "label":   "Enable plugin's smart audio filters",
-            "tooltip": "Prepares the audio transcoder for filtergraph-based smart processing.",
+            "label":       "Enable smart output target",
+            "description": "Automatically detect an audio bitrate target from the source file for Basic mode transcodes.",
         }
-        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+        if self.settings.get_setting('mode') not in ['basic']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_smart_output_target_form_settings(self):
+        values = {
+            "label":       "Smart output target",
+            "description": "Choose how Basic mode balances quality retention against compression when selecting the target bitrate.",
+            "sub_setting": True,
+            "input_type":  "select",
+            "select_options": [
+                {
+                    "value": "prefer_quality",
+                    "label": "Prefer Quality",
+                },
+                {
+                    "value": "balanced",
+                    "label": "Balanced",
+                },
+                {
+                    "value": "prefer_compression",
+                    "label": "Prefer Compression",
+                },
+            ],
+        }
+        self.__set_default_option(values['select_options'], 'smart_output_target', default_option='balanced')
+        if not self.settings.get_setting('enable_smart_output_target'):
+            values["display"] = 'hidden'
+        if self.settings.get_setting('mode') not in ['basic']:
+            values["display"] = 'hidden'
+        return values
+
+    def get_reencode_matching_codecs_above_target_form_settings(self):
+        values = {
+            "label":       "Re-encode matching codecs above target",
+            "description": "Also queue files that already use the selected codec when their bitrate is significantly above the smart output target window.",
+            "sub_setting": True,
+        }
+        if not self.settings.get_setting('enable_smart_output_target'):
+            values["display"] = 'hidden'
+        if self.settings.get_setting('mode') not in ['basic']:
             values["display"] = 'hidden'
         return values
 
@@ -176,9 +220,8 @@ class GlobalSettings:
         values = {
             "label":       "Apply custom audio filters",
             "description": "Append one FFmpeg audio filter per line to the generated filtergraph.",
-            "sub_setting": True,
         }
-        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+        if self.settings.get_setting('mode') not in ['standard']:
             values["display"] = 'hidden'
         return values
 
@@ -190,7 +233,7 @@ class GlobalSettings:
         }
         if not self.settings.get_setting('apply_custom_filters'):
             values["display"] = 'hidden'
-        if self.settings.get_setting('mode') not in ['basic', 'standard']:
+        if self.settings.get_setting('mode') not in ['standard']:
             values["display"] = 'hidden'
         return values
 
