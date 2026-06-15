@@ -39,9 +39,22 @@ class PluginStreamMapper(StreamMapper):
         self.settings = None
         self.media_file_mode = 'audio_file'
         self.complex_audio_filters = {}
+        self.filter_complex_parts = []
         self.forced_encode = False
         self.execution_stage = False
         self.stream_recommendations = {}
+
+    def _minimum_input_channel_count(self):
+        return tools.parse_minimum_channel_count(
+            self.settings.get_setting('minimum_input_channel_count')
+        )
+
+    @staticmethod
+    def _stream_channels(stream_info):
+        try:
+            return int(stream_info.get('channels'))
+        except (TypeError, ValueError):
+            return None
 
     def _get_target_channel_count(self, stream_info):
         source_channels = stream_info.get('channels')
@@ -81,6 +94,7 @@ class PluginStreamMapper(StreamMapper):
         self.set_input_file(abspath)
         self.settings = settings
         self.media_file_mode = tools.get_media_file_mode(abspath) or 'audio_file'
+        self.filter_complex_parts = []
         tools.append_worker_log(
             self.worker_log,
             "Stream mapper configured (mode='{}', media_mode='{}', encoder='{}')".format(
@@ -112,7 +126,16 @@ class PluginStreamMapper(StreamMapper):
         self.stream_mapping = []
         self.stream_encoding = []
         self.complex_audio_filters = {}
+        self.filter_complex_parts = []
         self.stream_recommendations = {}
+
+    def _append_filter_complex(self, filter_complex):
+        if not filter_complex:
+            return
+        self.filter_complex_parts.append(filter_complex)
+        self.set_ffmpeg_advanced_options(
+            **{"-filter_complex": ';'.join(self.filter_complex_parts)}
+        )
 
     def streams_need_processing(self):
         tools.append_worker_log(
@@ -218,6 +241,28 @@ class PluginStreamMapper(StreamMapper):
         codec_name = stream_info.get('codec_name', '').lower()
 
         if codec_type in ['audio']:
+            if tools.stream_marked_to_be_ignored(
+                stream_info,
+                plugin_id=tools.UNMANIC_STREAM_IGNORE_PLUGIN_ID,
+            ):
+                tools.append_worker_log(
+                    self.worker_log,
+                    "Audio stream marked to be ignored by Unmanic metadata - skipping"
+                )
+                return False
+
+            minimum_channels = self._minimum_input_channel_count()
+            source_channels = self._stream_channels(stream_info)
+            if minimum_channels and source_channels and source_channels < minimum_channels:
+                tools.append_worker_log(
+                    self.worker_log,
+                    "Audio stream channel count below configured processing threshold (stream={}, minimum={}) - skipping".format(
+                        source_channels,
+                        minimum_channels,
+                    )
+                )
+                return False
+
             if (
                 self.settings.get_setting('enable_smart_audio_filters') and (
                     (
@@ -284,7 +329,7 @@ class PluginStreamMapper(StreamMapper):
                 filter_id, filter_complex, filter_state = self.build_filter_chain(stream_info, stream_id)
                 if filter_complex:
                     map_identifier = '[{}]'.format(filter_id)
-                    self.set_ffmpeg_advanced_options(**{"-filter_complex": filter_complex})
+                    self._append_filter_complex(filter_complex)
                 else:
                     filter_state = self.complex_audio_filters.get(stream_id, {
                         "source_channels":       stream_info.get('channels'),

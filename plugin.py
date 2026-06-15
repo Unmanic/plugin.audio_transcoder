@@ -21,13 +21,18 @@
         If not, see <https://www.gnu.org/licenses/>.
 
 """
+
 import logging
 import os
 from configparser import NoOptionError, NoSectionError
 
 from audio_transcoder.lib import plugin_stream_mapper, tools
+from audio_transcoder.lib.encoders.ac3 import Ac3Encoder
 from audio_transcoder.lib.encoders.aac import AacEncoder
+from audio_transcoder.lib.encoders.eac3 import Eac3Encoder
+from audio_transcoder.lib.encoders.flac import FlacEncoder
 from audio_transcoder.lib.encoders.lame import LameEncoder
+from audio_transcoder.lib.encoders.opus import OpusEncoder
 from audio_transcoder.lib.ffmpeg import Parser, Probe
 from audio_transcoder.lib.global_settings import GlobalSettings
 from unmanic.libs.directoryinfo import UnmanicDirectoryInfo
@@ -35,13 +40,6 @@ from unmanic.libs.unplugins.settings import PluginSettings
 
 # Configure plugin logger
 logger = logging.getLogger("Unmanic.Plugin.audio_transcoder")
-
-"""
-TODO:
-    - Add FLAC
-    - Add OPUS
-"""
-
 
 class Settings(PluginSettings):
     def __init__(self, *args, **kwargs):
@@ -74,6 +72,10 @@ class Settings(PluginSettings):
         encoder_libs = [
             LameEncoder(self),
             AacEncoder(self),
+            FlacEncoder(self),
+            OpusEncoder(self),
+            Ac3Encoder(self),
+            Eac3Encoder(self),
         ]
         for encoder_lib in encoder_libs:
             encoder_settings.update(encoder_lib.options())
@@ -125,6 +127,20 @@ def file_marked_as_force_transcoded(path, file_metadata=None):
 
 
 def on_library_management_file_test(data, task_data_store=None, file_metadata=None):
+    """
+    Runner function - enables additional actions during the library management file tests.
+
+    The 'data' object argument includes:
+        library_id                      - The library that the current task is associated with
+        path                            - String containing the full path to the file being tested.
+        issues                          - List of currently found issues for not processing the file.
+        add_file_to_pending_tasks       - Boolean, is the file currently marked to be added to the queue for processing.
+        priority_score                  - Integer, an additional score that can be added to set the position of the new task in the task queue.
+        shared_info                     - Dictionary, information provided by previous plugin runners. This can be appended to for subsequent runners.
+
+    :param data:
+    :return:
+    """
     settings = Settings(library_id=data.get('library_id'), apply_default_fallbacks=False)
     abspath = data.get('path')
 
@@ -148,6 +164,24 @@ def on_library_management_file_test(data, task_data_store=None, file_metadata=No
 
 
 def on_worker_process(data, task_data_store=None, file_metadata=None):
+    """
+    Runner function - enables additional configured processing jobs during the worker stages of a task.
+
+    The 'data' object argument includes:
+        task_id                 - Integer, unique identifier of the task.
+        worker_log              - Array, the log lines that are being tailed by the frontend. Can be left empty.
+        library_id              - Number, the library that the current task is associated with.
+        exec_command            - Array, a subprocess command that Unmanic should execute. Can be empty.
+        current_command         - Array, shared list for updating the worker's "current command" text in the UI (last entry wins).
+        command_progress_parser - Function, a function that Unmanic can use to parse the STDOUT of the command to collect progress stats. Can be empty.
+        file_in                 - String, the source file to be processed by the command.
+        file_out                - String, the destination that the command should output (may be the same as the file_in if necessary).
+        original_file_path      - String, the absolute path to the original file.
+        repeat                  - Boolean, should this runner be executed again once completed with the same variables.
+
+    :param data:
+    :return:
+    """
     data['exec_command'] = []
     data['repeat'] = False
 
@@ -199,6 +233,24 @@ def on_worker_process(data, task_data_store=None, file_metadata=None):
 
 
 def on_postprocessor_task_results(data, task_data_store=None, file_metadata=None):
+    """
+    Runner function - provides a means for additional postprocessor functions based on the task success.
+
+    The 'data' object argument includes:
+        library_id                      - The library that the current task is associated with.
+        task_id                         - Integer, unique identifier of the task.
+        task_type                       - String, "local" or "remote".
+        final_cache_path                - The path to the final cache file that was then used as the source for all destination files.
+        task_processing_success         - Boolean, did all task processes complete successfully.
+        file_move_processes_success     - Boolean, did all postprocessor movement tasks complete successfully.
+        destination_files               - List containing all file paths created by postprocessor file movements.
+        source_data                     - Dictionary containing data pertaining to the original source file.
+        start_time                      - Float, UNIX timestamp when the task began.
+        finish_time                     - Float, UNIX timestamp when the task completed.
+
+    :param data:
+    :return:
+    """
     settings = Settings(library_id=data.get('library_id'), apply_default_fallbacks=False)
 
     original_source_path = data.get('source_data', {}).get('abspath')

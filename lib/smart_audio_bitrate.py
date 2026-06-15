@@ -42,7 +42,10 @@ class SmartAudioBitrateHelper:
 
     _BITRATE_LADDERS = {
         "aac": [24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 576],
+        "ac3": [96, 128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640],
+        "eac3": [96, 128, 160, 192, 224, 256, 320, 384, 448, 512, 576, 640, 768, 896, 1024],
         "mp3": [32, 40, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+        "opus": [32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512],
     }
 
     _TARGETS = {
@@ -80,6 +83,57 @@ class SmartAudioBitrateHelper:
                 "surround": 224,
             },
         },
+        "ac3": {
+            GOAL_PREFER_QUALITY: {
+                "mono": 160,
+                "stereo": 256,
+                "surround": 640,
+            },
+            GOAL_BALANCED: {
+                "mono": 128,
+                "stereo": 224,
+                "surround": 448,
+            },
+            GOAL_PREFER_COMPRESSION: {
+                "mono": 96,
+                "stereo": 192,
+                "surround": 384,
+            },
+        },
+        "eac3": {
+            GOAL_PREFER_QUALITY: {
+                "mono": 128,
+                "stereo": 224,
+                "surround": 512,
+            },
+            GOAL_BALANCED: {
+                "mono": 96,
+                "stereo": 192,
+                "surround": 384,
+            },
+            GOAL_PREFER_COMPRESSION: {
+                "mono": 64,
+                "stereo": 160,
+                "surround": 320,
+            },
+        },
+        "opus": {
+            GOAL_PREFER_QUALITY: {
+                "mono": 80,
+                "stereo": 160,
+                "surround": 320,
+            },
+            GOAL_BALANCED: {
+                "mono": 64,
+                "stereo": 128,
+                "surround": 256,
+            },
+            GOAL_PREFER_COMPRESSION: {
+                "mono": 48,
+                "stereo": 96,
+                "surround": 192,
+            },
+        },
     }
 
     _MINIMUMS = {
@@ -92,6 +146,21 @@ class SmartAudioBitrateHelper:
             "mono": 64,
             "stereo": 96,
             "surround": 160,
+        },
+        "ac3": {
+            "mono": 96,
+            "stereo": 192,
+            "surround": 384,
+        },
+        "eac3": {
+            "mono": 64,
+            "stereo": 128,
+            "surround": 256,
+        },
+        "opus": {
+            "mono": 48,
+            "stereo": 96,
+            "surround": 192,
         },
     }
 
@@ -146,6 +215,10 @@ class SmartAudioBitrateHelper:
         "truehd",
         "tta",
         "wavpack",
+    }
+
+    _LOSSLESS_TARGET_CODECS = {
+        "flac",
     }
 
     def __init__(self, probe):
@@ -342,6 +415,38 @@ class SmartAudioBitrateHelper:
         bitrate_data = self._derive_source_bitrate(stream_info)
         derived_bitrate = bitrate_data.get("derived_bitrate")
         source_bitrate_kbps = int(round(derived_bitrate / 1000.0)) if derived_bitrate else None
+
+        if target_codec in self._LOSSLESS_TARGET_CODECS:
+            notes = list(bitrate_data.get("notes") or [])
+            notes.append("lossless_target")
+            recommendation = {
+                "goal": goal,
+                "target_codec": target_codec,
+                "target_encoder": target_encoder,
+                "source_codec": source_codec,
+                "source_channels": source_channels,
+                "target_channels": channels,
+                "source_sample_rate": sample_rate,
+                "source_bitrate_kbps": source_bitrate_kbps,
+                "recommended_target_kbps": None,
+                "max_fit_kbps": None,
+                "quality_mode": "lossless",
+                "confidence": bitrate_data.get("confidence"),
+                "should_transcode_for_bitrate": False,
+                "notes": notes,
+            }
+            logger.debug(
+                "[SmartAudioBitrateHelper] recommendation goal=%s target_codec=%s source_codec=%s source_kbps=%s target_kbps=%s max_fit_kbps=%s confidence=%s notes=%s",
+                recommendation.get("goal"),
+                recommendation.get("target_codec"),
+                recommendation.get("source_codec"),
+                recommendation.get("source_bitrate_kbps"),
+                recommendation.get("recommended_target_kbps"),
+                recommendation.get("max_fit_kbps"),
+                recommendation.get("confidence"),
+                ",".join(recommendation.get("notes") or []),
+            )
+            return recommendation
 
         recommended_target_kbps = self._target_bitrate_kbps(
             target_codec,
